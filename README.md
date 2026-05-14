@@ -18,7 +18,9 @@ Miscellaneous standalone scripts for genomics bioinformatics tasks.
 
 ### Bash
 
-*(none yet)*
+| Script | Description |
+|--------|-------------|
+| [pvar_merge_check.sh](bash/pvar_merge_check.sh) | Compare two PLINK2 pvar files for merge compatibility. Outputs a TSV cataloguing all variants with match codes: `2` perfect, `1` semi-match (diff ALT), `-1` REF mismatch, `0` missing in one dataset. |
 
 ### R
 
