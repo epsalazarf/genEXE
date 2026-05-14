@@ -27,7 +27,8 @@
 # Both files must have CHROM/POS/REF/ALT in columns 1/2/4/5 (standard PLINK2 format).
 # Output is sorted by CHROM (version order) then POS (numeric).
 #
-# Dependencies: awk, sort (POSIX standard tools)
+# Memory: O(1) — uses sort+merge-join; suitable for files with millions of variants.
+# Dependencies: awk, sort (GNU coreutils)
 
 set -euo pipefail
 
@@ -42,92 +43,106 @@ echo "Reference : $REF_PVAR" >&2
 echo "Query     : $QRY_PVAR" >&2
 echo "Output    : $OUT_TSV"  >&2
 
+# Temp dir cleaned up on exit regardless of success/failure
+WORK_DIR=$(mktemp -d)
+trap 'rm -rf "$WORK_DIR"' EXIT
+
+TMP1="$WORK_DIR/ds1.sorted"
+TMP2="$WORK_DIR/ds2.sorted"
+
+# ── Step 1: extract CHROM POS REF ALT from each pvar, sort to disk ───────────
+# Sorting to disk keeps peak RAM low regardless of file size.
+# A numeric sort key (chrom rank) is prepended so chromosomes sort correctly
+# (1-22, X, Y, XY, MT) without relying on locale or version-sort availability.
+
+pvar_extract_sort() {
+    local file="$1"
+    awk '
+    /^##/ { next }
+    /^#/  { next }
+    {
+        c = $1; sub(/^chr/, "", c)
+        rank = (c+0 > 0) ? c+0 : (c=="X" ? 23 : c=="Y" ? 24 : c=="XY" ? 25 : \
+                                   (c=="MT"||c=="M") ? 26 : 99)
+        printf "%02d\t%d\t%s\t%s\t%s\t%s\n", rank, $2+0, $1, $2, $4, $5
+    }' "$file" | sort -k1,1n -k2,2n
+}
+
+echo "Sorting DS1 (reference)..." >&2
+pvar_extract_sort "$REF_PVAR" > "$TMP1"
+
+echo "Sorting DS2 (query)..." >&2
+pvar_extract_sort "$QRY_PVAR" > "$TMP2"
+
+# ── Step 2: merge-join the two sorted streams, one line at a time ─────────────
+# No arrays — only two lines live in memory at once.
+# Output is already sorted; no downstream sort needed.
+
 printf 'VARID\tCHROM\tPOS\tREF\tALT\tDS1\tDS2\tMATCH\n' > "$OUT_TSV"
 
-awk '
-BEGIN { OFS = "\t" }
+awk -v f1="$TMP1" -v f2="$TMP2" '
+BEGIN {
+    OFS = "\t"
+    c_perfect = c_semi = c_mismatch = c_ds1only = c_ds2only = 0
 
-# Skip VCF meta-information lines (##) and the column header (#CHROM ...)
-/^##/ { next }
-/^#/  { next }
+    r1 = (getline line1 < f1)
+    r2 = (getline line2 < f2)
 
-# ── Pass 1: load reference pvar ──────────────────────────────────────────────
-FNR == NR {
-    key          = $1 SUBSEP $2
-    ref1[key]    = $4
-    alt1[key]    = $5
-    order1[++n1] = key
-    next
-}
+    while (r1 > 0 || r2 > 0) {
 
-# ── Pass 2: load query pvar ───────────────────────────────────────────────────
-{
-    key = $1 SUBSEP $2
-    if (!(key in seen2)) {
-        seen2[key]    = 1
-        ref2[key]     = $4
-        alt2[key]     = $5
-        order2[++n2]  = key
-    }
-}
+        if (r1 > 0) { split(line1, a, "\t"); rk1=a[1]+0; ps1=a[2]+0; ch1=a[3]; po1=a[4]; re1=a[5]; al1=a[6] }
+        if (r2 > 0) { split(line2, a, "\t"); rk2=a[1]+0; ps2=a[2]+0; ch2=a[3]; po2=a[4]; re2=a[5]; al2=a[6] }
 
-END {
-    c_perfect  = 0
-    c_semi     = 0
-    c_mismatch = 0
-    c_ds1only  = 0
-    c_ds2only  = 0
+        # Determine relative order of the two current records
+        if      (r1 <= 0)           cmp =  1   # DS1 exhausted
+        else if (r2 <= 0)           cmp = -1   # DS2 exhausted
+        else if (rk1 != rk2)        cmp = (rk1 < rk2) ? -1 : 1
+        else if (ps1 != ps2)        cmp = (ps1 < ps2) ? -1 : 1
+        else                        cmp =  0
 
-    # Emit reference variants (with match codes for shared sites)
-    for (i = 1; i <= n1; i++) {
-        key = order1[i]
-        split(key, a, SUBSEP)
-        chrom = a[1]; pos = a[2]
-        r1    = ref1[key]
-        al1   = alt1[key]
-        vid   = chrom "-" pos "-" r1 "-" al1
-
-        if (key in seen2) {
-            if (r1 == ref2[key]) {
-                if (al1 == alt2[key]) { m = 2;  c_perfect++  }
-                else                   { m = 1;  c_semi++     }
-            } else                     { m = -1; c_mismatch++ }
-            print vid, chrom, pos, r1, al1, 1, 1, m
-        } else {
-            print vid, chrom, pos, r1, al1, 1, 0, 0
+        if (cmp < 0) {
+            # Present only in DS1
+            print ch1 "-" po1 "-" re1 "-" al1, ch1, po1, re1, al1, 1, 0, 0
             c_ds1only++
-        }
-    }
+            r1 = (getline line1 < f1)
 
-    # Emit query-only variants
-    for (j = 1; j <= n2; j++) {
-        key = order2[j]
-        if (!(key in ref1)) {
-            split(key, a, SUBSEP)
-            chrom = a[1]; pos = a[2]
-            r2    = ref2[key]
-            al2   = alt2[key]
-            vid   = chrom "-" pos "-" r2 "-" al2
-            print vid, chrom, pos, r2, al2, 0, 1, 0
+        } else if (cmp > 0) {
+            # Present only in DS2
+            print ch2 "-" po2 "-" re2 "-" al2, ch2, po2, re2, al2, 0, 1, 0
             c_ds2only++
+            r2 = (getline line2 < f2)
+
+        } else {
+            # Same position — compare alleles; DS1 REF/ALT take priority
+            if (re1 == re2) {
+                if (al1 == al2) { m = 2; c_perfect++  }
+                else             { m = 1; c_semi++     }
+            } else               { m = -1; c_mismatch++ }
+            print ch1 "-" po1 "-" re1 "-" al1, ch1, po1, re1, al1, 1, 1, m
+            r1 = (getline line1 < f1)
+            r2 = (getline line2 < f2)
         }
     }
 
-    total = n1 + c_ds2only
+    # Totals
+    n_shared = c_perfect + c_semi + c_mismatch
+    n_ds1    = n_shared + c_ds1only
+    n_ds2    = n_shared + c_ds2only
+    total    = n_shared + c_ds1only + c_ds2only
 
-    print ""                                                      > "/dev/stderr"
-    print "=== Merge Compatibility Summary ==="                   > "/dev/stderr"
-    printf "%-34s %d\n", "Total unique variants:",  total        > "/dev/stderr"
-    printf "%-34s %d\n", "DS1 (reference) variants:", n1        > "/dev/stderr"
-    printf "%-34s %d\n", "DS2 (query) variants:", n2            > "/dev/stderr"
-    print "---"                                                   > "/dev/stderr"
-    printf "%-34s %d\n", "Perfect match     [2]:", c_perfect    > "/dev/stderr"
-    printf "%-34s %d\n", "Semi-match        [1]:", c_semi       > "/dev/stderr"
-    printf "%-34s %d\n", "REF mismatch     [-1]:", c_mismatch   > "/dev/stderr"
+    print ""                                                        > "/dev/stderr"
+    print "=== Merge Compatibility Summary ==="                     > "/dev/stderr"
+    printf "%-34s %d\n", "Total unique variants:",   total         > "/dev/stderr"
+    printf "%-34s %d\n", "DS1 (reference) variants:", n_ds1       > "/dev/stderr"
+    printf "%-34s %d\n", "DS2 (query) variants:",     n_ds2       > "/dev/stderr"
+    print "---"                                                     > "/dev/stderr"
+    printf "%-34s %d\n", "Perfect match     [2]:", c_perfect      > "/dev/stderr"
+    printf "%-34s %d\n", "Semi-match        [1]:", c_semi         > "/dev/stderr"
+    printf "%-34s %d\n", "REF mismatch     [-1]:", c_mismatch     > "/dev/stderr"
     printf "%-34s %d\n", "DS1 only (missing DS2) [0]:", c_ds1only > "/dev/stderr"
     printf "%-34s %d\n", "DS2 only (missing DS1) [0]:", c_ds2only > "/dev/stderr"
 }
-' "$REF_PVAR" "$QRY_PVAR" | sort -t$'\t' -k2,2V -k3,3n >> "$OUT_TSV"
+' >> "$OUT_TSV"
 
 echo "" >&2
 echo "Done. Output written to: $OUT_TSV" >&2
