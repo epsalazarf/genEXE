@@ -24,7 +24,9 @@ Miscellaneous standalone scripts for genomics bioinformatics tasks.
 
 ### R
 
-*(none yet)*
+| Script | Description |
+|--------|-------------|
+| [pvar_merge_summary.R](R/pvar_merge_summary.R) | Summarizes and visualizes output from `pvar_merge_check.sh`. Produces a TSV summary table (union/intersection/differences with counts and percentages), a 100% stacked bar plot per chromosome (A4 PNG + PDF), and a VARID extract list of perfect matches for PLINK2. |
 
 ### Python
 
