@@ -8,15 +8,15 @@
 
 ## Table of Contents
 
-1. [Rationale](#1-rationale)
-2. [Prerequisites](#2-prerequisites)
-3. [Quick Start](#3-quick-start)
-4. [Configuration Reference](#4-configuration-reference)
-5. [Pipeline Steps](#5-pipeline-steps)
-6. [Output Files](#6-output-files)
-7. [Critical Notes](#7-critical-notes)
-8. [Known Failure Modes](#8-known-failure-modes)
-9. [References](#9-references)
+1. [Rationale](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#1-rationale)
+2. [Prerequisites](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#2-prerequisites)
+3. [Quick Start](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#3-quick-start)
+4. [Configuration Reference](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#4-configuration-reference)
+5. [Pipeline Steps](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#5-pipeline-steps)
+6. [Output Files](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#6-output-files)
+7. [Critical Notes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#7-critical-notes)
+8. [Known Failure Modes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#8-known-failure-modes)
+9. [References](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#9-references)
 
 ---
 
@@ -51,19 +51,19 @@ Merging requires full allele reconciliation, strand resolution, and produces a c
 
 ### Software
 
-| Tool | Minimum version | Notes |
-|------|----------------|-------|
-| `plink2` | 2.0.0-a.6 | `allele-wts` and `acount` syntax; `--score` column layout changed in recent versions — see [Critical Notes](#7-critical-notes) |
-| `R` | 4.0 | Only required if `MAKE_PLOT=yes` |
-| `ggplot2` | any current | R package |
-| `data.table` | any current | R package |
-| `awk`, `sort`, `comm` | POSIX | Standard coreutils |
+| Tool                  | Minimum version | Notes                                                                                                                                                                                     |
+| --------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plink2`              | 2.0.0-a.6       | `allele-wts` and `acount` syntax; `--score` column layout changed in recent versions — see [Critical Notes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#7-critical-notes) |
+| `R`                   | 4.0             | Only required if `MAKE_PLOT=yes`                                                                                                                                                          |
+| `ggplot2`             | any current     | R package                                                                                                                                                                                 |
+| `data.table`          | any current     | R package                                                                                                                                                                                 |
+| `awk`, `sort`, `comm` | POSIX           | Standard coreutils                                                                                                                                                                        |
 
 ### Input data requirements
 
 - **Reference panel:** PLINK2 pfile (`.pgen`/`.pvar`/`.psam`). Should be a well-characterized modern population panel (e.g., 1000 Genomes, HGDP, or a curated Eurasian panel). Sample size should be sufficient for stable eigendecomposition — at minimum several hundred samples; >1,000 preferred.
 - **Ancient dataset:** PLINK2 pfile. Samples should already have passed upstream QC (damage filtering, contamination estimation, minimum coverage filtering). This script does not perform aDNA-specific QC such as mapDamage correction or contamination estimation.
-- **Variant ID convention:** Both datasets must use the same ID format. This script expects `CHR-POS-REF-ALT` (hyphen-delimited). Mismatched conventions are a silent failure mode — see [Known Failure Modes](#8-known-failure-modes).
+- **Variant ID convention:** Both datasets must use the same ID format. This script expects `CHR-POS-REF-ALT` (hyphen-delimited). Mismatched conventions are a silent failure mode — see [Known Failure Modes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#8-known-failure-modes).
 
 ---
 
@@ -100,54 +100,54 @@ All parameters have defaults and can be overridden via environment variables.
 
 ### Paths
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REF_PFILE` | `/path/to/modern_reference` | Prefix of reference PLINK2 pfile (no extension) |
-| `ANCIENT_PFILE` | `/path/to/ancient_dataset` | Prefix of ancient PLINK2 pfile (no extension) |
-| `OUTDIR` | `./pca_projection_out` | Output directory; created if absent |
-| `REF_FA` | *(empty)* | Path to reference FASTA for `--ref-from-fa`; optional |
+| Variable        | Default                     | Description                                           |
+| --------------- | --------------------------- | ----------------------------------------------------- |
+| `REF_PFILE`     | `/path/to/modern_reference` | Prefix of reference PLINK2 pfile (no extension)       |
+| `ANCIENT_PFILE` | `/path/to/ancient_dataset`  | Prefix of ancient PLINK2 pfile (no extension)         |
+| `OUTDIR`        | `./pca_projection_out`      | Output directory; created if absent                   |
+| `REF_FA`        | *(empty)*                   | Path to reference FASTA for `--ref-from-fa`; optional |
 
 ### Compute
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `THREADS` | `4` | CPU threads passed to PLINK2 |
-| `N_PCS` | `10` | Number of principal components to compute and project |
+| Variable  | Default | Description                                           |
+| --------- | ------- | ----------------------------------------------------- |
+| `THREADS` | `4`     | CPU threads passed to PLINK2                          |
+| `N_PCS`   | `10`    | Number of principal components to compute and project |
 
 ### Reference panel QC
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MAF_REF` | `0.05` | Minor allele frequency cutoff for reference panel |
-| `REF_GENO` | `0.05` | Maximum per-variant missingness in reference (0–1) |
-| `REF_MIND` | `0.10` | Maximum per-sample missingness in reference (0–1) |
-| `LD_WIN` | `1000` | LD pruning window size in kb |
-| `LD_STEP` | `50` | LD pruning step size in variants |
-| `LD_R2` | `0.1` | LD pruning r² threshold |
+| Variable      | Default  | Description                                                      |
+| ------------- | -------- | ---------------------------------------------------------------- |
+| `MAF_REF`     | `0.05`   | Minor allele frequency cutoff for reference panel                |
+| `REF_GENO`    | `0.05`   | Maximum per-variant missingness in reference (0–1)               |
+| `REF_MIND`    | `0.10`   | Maximum per-sample missingness in reference (0–1)                |
+| `LD_WIN`      | `1000`   | LD pruning window size in kb                                     |
+| `LD_STEP`     | `50`     | LD pruning step size in variants                                 |
+| `LD_R2`       | `0.1`    | LD pruning r² threshold                                          |
 | `KING_CUTOFF` | `0.0884` | Kinship coefficient cutoff for relatedness pruning (~2nd degree) |
 
 ### Ancient dataset filters
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ANC_GENO` | `1.0` | Maximum per-variant missingness in ancient dataset; `1.0` disables |
-| `ANC_MIND` | `1.0` | Maximum per-sample missingness in ancient dataset; `1.0` disables |
+| Variable   | Default | Description                                                        |
+| ---------- | ------- | ------------------------------------------------------------------ |
+| `ANC_GENO` | `1.0`   | Maximum per-variant missingness in ancient dataset; `1.0` disables |
+| `ANC_MIND` | `1.0`   | Maximum per-sample missingness in ancient dataset; `1.0` disables  |
 
 Setting both to `1.0` (the default) applies no missingness filter to ancient samples, which is appropriate when samples have already been filtered upstream and further exclusion would remove too many individuals. Use a threshold such as `ANC_MIND=0.98` if you want to exclude samples with extreme genome-wide missingness.
 
 ### Strand-ambiguous SNPs
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `EXCLUDE_AMBIGUOUS` | `yes` | `yes` = exclude A/T and C/G SNPs; `no` = retain them |
+| Variable            | Default | Description                                          |
+| ------------------- | ------- | ---------------------------------------------------- |
+| `EXCLUDE_AMBIGUOUS` | `yes`   | `yes` = exclude A/T and C/G SNPs; `no` = retain them |
 
-See [Critical Notes](#7-critical-notes) for the rationale and trade-offs of each choice.
+See [Critical Notes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#7-critical-notes) for the rationale and trade-offs of each choice.
 
 ### Output control
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MAKE_PLOT` | `yes` | `yes` = run R diagnostic plot after projection |
+| Variable    | Default | Description                                    |
+| ----------- | ------- | ---------------------------------------------- |
+| `MAKE_PLOT` | `yes`   | `yes` = run R diagnostic plot after projection |
 
 ---
 
@@ -210,7 +210,7 @@ The intersection is computed by extracting variant IDs from `ref_qc.pvar` and `a
 
 The script emits a warning if fewer than 10,000 shared variants are found. Below this threshold, PC resolution is typically insufficient to separate continental populations reliably, and the projections should be interpreted with caution.
 
-A common reason for low intersection counts is variant ID format mismatch — see [Known Failure Modes](#8-known-failure-modes).
+A common reason for low intersection counts is variant ID format mismatch — see [Known Failure Modes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#8-known-failure-modes).
 
 ### Step 4 — Ancient dataset missingness filter
 
@@ -237,7 +237,7 @@ Each ancient sample's projected PC coordinate is computed as a weighted sum of i
 Key flags:
 
 - `--read-freq ref_pca.acount`: supplies the reference allele frequencies used for centering and standardization. These must come from the reference panel, not from the ancient samples.
-- `no-mean-imputation`: missing genotypes in ancient samples are **not** replaced by the reference mean dosage. This is critical — see [Critical Notes](#7-critical-notes).
+- `no-mean-imputation`: missing genotypes in ancient samples are **not** replaced by the reference mean dosage. This is critical — see [Critical Notes](https://claude.ai/chat/87888492-c3b1-4bbe-b2ef-2281fed859eb#7-critical-notes).
 - `variance-standardize`: standardizes the score by the expected variance under Hardy-Weinberg equilibrium given the reference allele frequencies.
 - `--score-col-nums 6-15`: selects PC weight columns 6 through 15 (for N_PCS=10). The column range is computed automatically from `N_PCS`.
 
@@ -251,18 +251,18 @@ Produces a PDF scatterplot of PC1 vs PC2 with reference samples shown as semi-tr
 
 All outputs are written to `OUTDIR/`.
 
-| File | Description |
-|------|-------------|
-| `ref_qc.pgen/pvar/psam` | QC'd, LD-pruned, relatedness-pruned reference panel |
-| `ref_pca.eigenvec` | Reference sample PC coordinates |
-| `ref_pca.eigenvec.allele` | Per-allele PC weights (projection basis) |
-| `ref_pca.eigenval` | Eigenvalues |
-| `ref_pca.acount` | Reference allele counts (required for projection standardization) |
-| `intersect_variants.txt` | Variant IDs shared between reference and ancient dataset |
+| File                              | Description                                                                              |
+| --------------------------------- | ---------------------------------------------------------------------------------------- |
+| `ref_qc.pgen/pvar/psam`           | QC'd, LD-pruned, relatedness-pruned reference panel                                      |
+| `ref_pca.eigenvec`                | Reference sample PC coordinates                                                          |
+| `ref_pca.eigenvec.allele`         | Per-allele PC weights (projection basis)                                                 |
+| `ref_pca.eigenval`                | Eigenvalues                                                                              |
+| `ref_pca.acount`                  | Reference allele counts (required for projection standardization)                        |
+| `intersect_variants.txt`          | Variant IDs shared between reference and ancient dataset                                 |
 | `ancient_filtered.pgen/pvar/psam` | Ancient dataset restricted to shared variants (symlink if no missingness filter applied) |
-| `ancient_proj.sscore` | Projected PC scores for ancient samples |
-| `pca_projection.pdf` | Diagnostic plot (if `MAKE_PLOT=yes`) |
-| `ambiguous_snps.txt` | Strand-ambiguous variant IDs excluded (if `EXCLUDE_AMBIGUOUS=yes`) |
+| `ancient_proj.sscore`             | Projected PC scores for ancient samples                                                  |
+| `pca_projection.pdf`              | Diagnostic plot (if `MAKE_PLOT=yes`)                                                     |
+| `ambiguous_snps.txt`              | Strand-ambiguous variant IDs excluded (if `EXCLUDE_AMBIGUOUS=yes`)                       |
 
 Intermediate files (`ref_mafgeno.*`, `ref_noamb.*`, `ref_ld.*`, `ref_king.*`) are retained in `OUTDIR/` and serve as checkpoints for the idempotency logic. They may be deleted after a successful run to recover disk space.
 
@@ -316,6 +316,18 @@ If formats differ, normalize both datasets to `CHR-POS-REF-ALT` using `bcftools 
 
 The `.sscore` output contains an `ALLELE_CT` column giving the number of alleles scored for each sample (i.e., twice the number of non-missing variants). For a projection based on, say, 80,000 shared variants, a sample with `ALLELE_CT` of 160,000 has complete coverage; a sample with 4,000 has covered only ~2.5% of sites. Projections based on very low `ALLELE_CT` values are unreliable and should not be interpreted as representative population placements. A reasonable minimum threshold for interpretation is approximately 10,000–20,000 alleles (5,000–10,000 variants), though this depends on the PC being examined and the population contrast being resolved.
 
+### Reference-private variants and the skipped entries warning
+
+When running `--score` with `--extract`, PLINK2 still reads the full `.eigenvec.allele` file and attempts to look up every entry in the genotype data. Variants present in `eigenvec.allele` but absent from the ancient pvar (reference-private variants that failed the intersection) generate the warning:
+
+```
+Warning: --score: N entries in ref_pca.eigenvec.allele were skipped due to missing variant IDs.
+```
+
+Because `--pca allele-wts` writes exactly **2 rows per biallelic variant** in `eigenvec.allele` (one for REF, one for ALT), the relationship between skipped variants and skipped entries is: skipped entries = reference-private variants × 2. This was confirmed empirically: 522 reference-private variants × 2 = 1,044 skipped entries, matching the PLINK2 warning exactly.
+
+This warning is therefore **benign** when the count is explained entirely by reference-private variants. It becomes concerning only if the count exceeds `(reference_variants − shared_variants) × 2`, which would indicate allele code mismatches or REF/ALT swaps affecting variants that *should* have been scored. The `check_skipped_variants.sh` diagnostic script verifies which scenario is present.
+
 ### PC scale differences between reference and projected samples
 
 The reference `.eigenvec` coordinates and the projected `.sscore` coordinates are not guaranteed to be on the same scale, even with `variance-standardize`. The reference coordinates are normalized by the eigenvalue during the SVD; the projected scores are raw dot products divided by variance. To place both on the same scale for visualization, divide the projected scores by `sqrt(eigenvalue_i)` for PC_i, where eigenvalues are read from `ref_pca.eigenval`. The diagnostic R plot does not perform this rescaling — it is adequate for a sanity check but not for publication.
@@ -324,15 +336,16 @@ The reference `.eigenvec` coordinates and the projected `.sscore` coordinates ar
 
 ## 8. Known Failure Modes
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| `intersect_variants.txt` nearly empty | Variant ID format mismatch | Normalize IDs in both datasets before running |
-| Ancient samples cluster at origin in plot | `no-mean-imputation` missing, or very low `ALLELE_CT` | Verify flag is present; check `ALLELE_CT` per sample |
-| `variance-standardize failure` error | Monomorphic variant in score file | Filter zero/one-frequency variants from `.eigenvec.allele` |
-| `--sort-vars` conflict error | Attempted to combine with a reporting flag | Run conversion and reporting in separate PLINK2 calls |
-| Ancient samples compress toward reference centroid | Mean imputation active | Ensure `no-mean-imputation` is passed to `--score` |
-| PC axes dominated by HLA or centromeric regions | LD pruning too lenient | Tighten `LD_R2` or add an explicit exclude region file for HLA (chr6:25–35Mb) |
-| Very few samples retained after KING pruning | Reference panel has family structure | Raise `KING_CUTOFF` or supply a pre-filtered reference |
+| Symptom                                            | Likely cause                                                                                                        | Fix                                                                           |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `intersect_variants.txt` nearly empty              | Variant ID format mismatch                                                                                          | Normalize IDs in both datasets before running                                 |
+| Ancient samples cluster at origin in plot          | `no-mean-imputation` missing, or very low `ALLELE_CT`                                                               | Verify flag is present; check `ALLELE_CT` per sample                          |
+| `--score: N entries skipped` warning               | Reference-private variants (in eigenvec.allele but absent from ancient pvar); benign if N = (ref_only_variants × 2) | Run `check_skipped_variants.sh`; only investigate if N exceeds expected count |
+| `variance-standardize failure` error               | Monomorphic variant in score file                                                                                   | Filter zero/one-frequency variants from `.eigenvec.allele`                    |
+| `--sort-vars` conflict error                       | Attempted to combine with a reporting flag                                                                          | Run conversion and reporting in separate PLINK2 calls                         |
+| Ancient samples compress toward reference centroid | Mean imputation active                                                                                              | Ensure `no-mean-imputation` is passed to `--score`                            |
+| PC axes dominated by HLA or centromeric regions    | LD pruning too lenient                                                                                              | Tighten `LD_R2` or add an explicit exclude region file for HLA (chr6:25–35Mb) |
+| Very few samples retained after KING pruning       | Reference panel has family structure                                                                                | Raise `KING_CUTOFF` or supply a pre-filtered reference                        |
 
 ---
 

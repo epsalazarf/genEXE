@@ -69,8 +69,8 @@ set -euo pipefail
 # =============================================================================
 # CONFIG — override via environment or edit here
 # =============================================================================
-REF_PFILE="${REF_PFILE:-/path/to/modern_reference}"
-ANCIENT_PFILE="${ANCIENT_PFILE:-/path/to/ancient_dataset}"
+REF_PFILE="${REF_PFILE:-/mnt/data/fsanchezq/esalazarf/References/hg37/HOv2/HOv2_Eurasia_Laz2016_maf03_PCA}"
+ANCIENT_PFILE="${ANCIENT_PFILE:-}"
 OUTDIR="${OUTDIR:-./pca_projection_out}"
 THREADS="${THREADS:-4}"
 N_PCS="${N_PCS:-10}"
@@ -84,7 +84,7 @@ ANC_MIND="${ANC_MIND:-1.0}"    # no sample missingness filter on ancients
 # MAF and LD pruning (reference panel only)
 MAF_REF="${MAF_REF:-0.05}"
 LD_WIN="${LD_WIN:-1000}"
-LD_STEP="${LD_STEP:-50}"
+LD_STEP="${LD_STEP:-1}"    # must be 1 when LD_WIN is in kb units (PLINK2 requirement)
 LD_R2="${LD_R2:-0.1}"
 
 # Strand-ambiguous SNP handling: "yes" = exclude A/T and C/G SNPs
@@ -97,7 +97,7 @@ KING_CUTOFF="${KING_CUTOFF:-0.0884}"   # ~2nd degree (KING default)
 MAKE_PLOT="${MAKE_PLOT:-yes}"
 
 # Optional reference FASTA (leave empty to skip --ref-from-fa)
-REF_FA="${REF_FA:-}"
+REF_FA="${REF_FA:-/mnt/data/fsanchezq/esalazarf/References/hg37/hsa_ref_genome/hs37d5.fa.zst}"
 
 # =============================================================================
 # HELPERS
@@ -251,11 +251,19 @@ if [[ -f "${REF_PCA}.eigenvec.allele" && -f "${REF_PCA}.acount" ]]; then
 else
     log "STEP 2: Computing PCA allele weights on reference panel (N_PCS=${N_PCS})..."
     # --freq counts and --pca allele-wts must be in the same call.
-    # approx (randomized SVD) is recommended for large reference panels.
+    # approx (randomized SVD) is only recommended for N > 5000; use exact SVD below that.
+    REF_N=$(awk 'END{print NR}' "${REF_QC}.psam")
+    if [[ "${REF_N}" -gt 5000 ]]; then
+        PCA_MODE="approx allele-wts"
+        log "  Reference N=${REF_N} > 5000: using approx (randomized SVD)."
+    else
+        PCA_MODE="allele-wts"
+        log "  Reference N=${REF_N} <= 5000: using exact SVD (approx not recommended)."
+    fi
     plink2 \
         --pfile "${REF_QC}" \
         --freq counts \
-        --pca approx allele-wts "${N_PCS}" \
+        --pca ${PCA_MODE} "${N_PCS}" \
         --threads "${THREADS}" \
         --out "${REF_PCA}"
 
