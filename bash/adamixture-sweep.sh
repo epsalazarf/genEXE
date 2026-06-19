@@ -1,7 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=adamix_sweep
-#SBATCH --partition=avx512
-#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=04:00:00
@@ -11,18 +9,23 @@
 
 # Title: adamixture-sweep.sh
 # Description: Unsupervised ADAMIXTURE multi-K sweep (K=2..10) with k-fold cross-
-#              validation and a combined sweep plot. Requests one GPU and uses it
-#              if CUDA is actually available to the ADAMIX env at runtime;
-#              otherwise it falls back transparently to CPU multi-threading.
+#              validation and a combined sweep plot. Runs on CPU by default.
+#              GPU is opt-in (USE_GPU=1): ADAMIXTURE JIT-compiles a CUDA extension
+#              on first use, and the NVIDIA HPC SDK stores libcudart outside the
+#              path PyTorch guesses, so the GPU branch also exposes that lib dir.
 #              Results are written to a subfolder next to the input data.
 #              An optional toggle stages I/O on the FENIX scratch volume.
 # Usage:  mkdir -p logs
+#         # CPU (default):
 #         sbatch bash/adamixture-sweep.sh <data_path> [name]
+#         # GPU (opt-in): request a GPU and enable USE_GPU on the same line:
+#         sbatch --partition=avx512 --gres=gpu:1 --export=ALL,USE_GPU=1 \
+#                bash/adamixture-sweep.sh <data_path> [name]
 #           <data_path>  Path to genotypes (.bed | .pgen | .vcf | .vcf.gz)
 #           [name]       Optional run name (default: input basename)
 # Developer: Pavel Salazar-Fernandez <pavel.salazar@galatea.bio>
 # Dependencies: ADAMIXTURE (conda env), nvidiahpc/25.1-0 (CUDA, for GPU runs)
-# Version: 0.1, 2026-06-18
+# Version: 0.2, 2026-06-18
 
 set -euo pipefail
 
@@ -31,6 +34,8 @@ set -euo pipefail
 # ----------------------------------------------------------------------------
 ENV_NAME=ADAMIX          # conda env name holding the ADAMIXTURE install
 ENV_PATH=${ENVDIR:+${ENVDIR%/}/${ENV_NAME}}          # built from $ENVDIR (export ENVDIR=/path/to/envs)
+USE_GPU=${USE_GPU:-0}    # 1 = run on GPU (also needs --gres=gpu:1; see header usage)
+CUDA_HOME=${CUDA_HOME:-} # optional: HPC SDK CUDA dir holding lib64/libcudart.so (auto-detected if empty)
 MIN_K=2                  # sweep lower bound
 MAX_K=10                 # sweep upper bound
 CV_FOLDS=5               # cross-validation folds (5 = ADAMIXTURE default)
@@ -86,7 +91,6 @@ if [ -z "${ENV_PATH}" ]; then
   exit 1
 fi
 
-module load nvidiahpc/25.1-0 2>/dev/null || echo "[!] nvidiahpc module not loaded (CPU-only run expected)."
 export PATH="${ENV_PATH}/bin:${PATH}"
 
 if ! command -v adamixture >/dev/null 2>&1; then
@@ -95,16 +99,44 @@ if ! command -v adamixture >/dev/null 2>&1; then
 fi
 
 # ----------------------------------------------------------------------------
-# Device selection: use the GPU only if the env's torch can actually see CUDA
+# Device selection
+#   CPU (default): multi-threaded, always works.
+#   GPU (USE_GPU=1): load the CUDA toolkit and expose libcudart so the JIT
+#   CUDA-extension link step finds -lcudart (the HPC SDK keeps it outside the
+#   path PyTorch guesses). Falls back to CPU if CUDA still isn't usable.
 # ----------------------------------------------------------------------------
 THREADS=${SLURM_CPUS_PER_TASK:-4}
-if python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
-  DEVICE_ARGS=(--device gpu)
-  echo "[!] CUDA available — running on GPU."
-  nvidia-smi || true
+DEVICE_ARGS=()
+
+if [ "${USE_GPU}" -eq 1 ]; then
+  module load nvidiahpc/25.1-0 2>/dev/null || echo "[!] WARNING: could not load nvidiahpc module." >&2
+
+  # Locate the HPC SDK CUDA dir (the one with lib64/libcudart.so) unless given
+  if [ -z "${CUDA_HOME}" ]; then
+    for c in /opt/nvidia/hpc_sdk/Linux_x86_64/*/cuda /opt/nvidia/hpc_sdk/Linux_x86_64/*/cuda/*/; do
+      if [ -e "${c%/}/lib64/libcudart.so" ]; then CUDA_HOME="${c%/}"; break; fi
+    done
+  fi
+  if [ -n "${CUDA_HOME}" ] && [ -e "${CUDA_HOME}/lib64/libcudart.so" ]; then
+    export CUDA_HOME
+    export LIBRARY_PATH="${CUDA_HOME}/lib64:${LIBRARY_PATH:-}"      # link-time (-lcudart)
+    export LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH:-}" # run-time
+    echo "[!] CUDA_HOME=${CUDA_HOME} (libcudart exposed for the JIT build)."
+  else
+    echo "[!] WARNING: libcudart.so not found under /opt/nvidia/hpc_sdk." >&2
+    echo "    Set CUDA_HOME to the dir whose lib64/ holds libcudart.so. Try:" >&2
+    echo "      find /opt/nvidia/hpc_sdk -name libcudart.so 2>/dev/null" >&2
+  fi
+
+  if python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    DEVICE_ARGS=(--device gpu)
+    echo "[!] Running on GPU."
+    nvidia-smi || true
+  else
+    echo "[!] WARNING: USE_GPU=1 but CUDA not visible to torch — using CPU (${THREADS} threads)." >&2
+  fi
 else
-  DEVICE_ARGS=()
-  echo "[!] CUDA not available — falling back to CPU with ${THREADS} thread(s)."
+  echo "[!] Running on CPU with ${THREADS} thread(s). (Set USE_GPU=1 + --gres=gpu:1 for GPU.)"
 fi
 
 # ----------------------------------------------------------------------------
