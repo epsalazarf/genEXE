@@ -25,6 +25,12 @@
 #                bash/adamixture-sweep.sh <data_path> [name]
 #           <data_path>  Path to genotypes (.bed | .pgen | .vcf | .vcf.gz)
 #           [name]       Optional run name (default: input basename)
+#
+# NOTE (FENIX, 2026-06): GPU runs are NOT available yet. The only GPU partition
+#       (avx512) is reserved by admin policy for gromacs/lammps/aspect, so the
+#       GPU submit line above is rejected at submission. The GPU code path is
+#       kept ready (CUDA-13 toolkit auto-matched to torch) for when/if a GPU
+#       partition is opened to general jobs. Use the CPU default for now.
 # Developer: Pavel Salazar-Fernandez <pavel.salazar@galatea.bio>
 # Dependencies: ADAMIXTURE (conda env); NVIDIA HPC SDK CUDA toolkits under
 #               /opt/nvidia/hpc_sdk (for GPU runs; auto-matched to torch's CUDA)
@@ -37,7 +43,7 @@ set -euo pipefail
 # ----------------------------------------------------------------------------
 ENV_NAME=ADAMIX          # conda env name holding the ADAMIXTURE install
 ENV_PATH=${ENVDIR:+${ENVDIR%/}/${ENV_NAME}}          # built from $ENVDIR (export ENVDIR=/path/to/envs)
-USE_GPU=${USE_GPU:-0}    # 1 = run on GPU (also needs --gres=gpu:1; see header usage)
+USE_GPU=${USE_GPU:-0}    # 1 = run on GPU (needs --gres=gpu:1). NOTE: blocked on FENIX (see header)
 CUDA_HOME=${CUDA_HOME:-} # optional override; else auto-pick the HPC SDK toolkit matching torch's CUDA
 MIN_K=2                  # sweep lower bound
 MAX_K=10                 # sweep upper bound
