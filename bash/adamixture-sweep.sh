@@ -1,15 +1,18 @@
 #!/bin/bash
 #SBATCH --job-name=adamix_sweep
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
-#SBATCH --time=04:00:00
+#SBATCH --time=16:00:00
 #SBATCH --export=ALL
 #SBATCH --output=logs/adamix_sweep_%j.out
 #SBATCH --error=logs/adamix_sweep_%j.err
 
 # Title: adamixture-sweep.sh
-# Description: Unsupervised ADAMIXTURE multi-K sweep (K=2..10) with k-fold cross-
-#              validation and a combined sweep plot. Runs on CPU by default.
+# Description: Unsupervised ADAMIXTURE multi-K sweep (K=2..10), training only by
+#              default (the ancestry inference), plus a combined sweep plot.
+#              Cross-validation is OPT-IN (CV_FOLDS>0): it is shelved for now
+#              because its per-entry prediction step needs far more RAM than
+#              training (it OOM-killed at 16G; training peaks ~8G). Runs on CPU.
 #              GPU is opt-in (USE_GPU=1): ADAMIXTURE JIT-compiles a CUDA extension
 #              on first use, so nvcc + libcudart must match the CUDA version
 #              PyTorch was built for. The GPU branch reads torch.version.cuda and
@@ -34,7 +37,7 @@
 # Developer: Pavel Salazar-Fernandez <pavel.salazar@galatea.bio>
 # Dependencies: ADAMIXTURE (conda env); NVIDIA HPC SDK CUDA toolkits under
 #               /opt/nvidia/hpc_sdk (for GPU runs; auto-matched to torch's CUDA)
-# Version: 0.3, 2026-06-18
+# Version: 0.4, 2026-06-22
 
 set -euo pipefail
 
@@ -47,7 +50,7 @@ USE_GPU=${USE_GPU:-0}    # 1 = run on GPU (needs --gres=gpu:1). NOTE: blocked on
 CUDA_HOME=${CUDA_HOME:-} # optional override; else auto-pick the HPC SDK toolkit matching torch's CUDA
 MIN_K=2                  # sweep lower bound
 MAX_K=10                 # sweep upper bound
-CV_FOLDS=5               # cross-validation folds (5 = ADAMIXTURE default)
+CV_FOLDS=0               # CV folds; 0 = training only (CV needs >>16G, see header)
 SEED=42                  # random seed (matches ADMIXTURE -s 42)
 PLOT_FORMAT=png          # combined sweep plot format (png | pdf | jpg)
 PLOT_DPI=300             # combined sweep plot resolution
@@ -196,10 +199,17 @@ fi
 # ----------------------------------------------------------------------------
 # Run the sweep
 # ----------------------------------------------------------------------------
+# Cross-validation only when CV_FOLDS > 0 (off by default — training only)
+CV_ARGS=()
+if [ "${CV_FOLDS}" -gt 0 ]; then
+  CV_ARGS=(--cv "${CV_FOLDS}")
+  echo "[!] Cross-validation enabled (${CV_FOLDS}-fold) — note: needs much more RAM than 16G."
+fi
+
 echo "[!] Launching ADAMIXTURE..."
 adamixture \
   --min_k "${MIN_K}" --max_k "${MAX_K}" \
-  --cv "${CV_FOLDS}" \
+  "${CV_ARGS[@]}" \
   --data_path "${RUN_DATA}" \
   --save_dir "${RUN_DIR}" \
   --name "${NAME}" \
